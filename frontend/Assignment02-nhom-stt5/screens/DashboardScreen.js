@@ -1,48 +1,81 @@
-import React, { useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, Modal, TextInput, Button, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, Modal, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { useSelector, useDispatch } from 'react-redux';
 import { Ionicons } from '@expo/vector-icons';
-import RoomCard from '../components/RoomCard';
-import { fetchRooms } from '../redux/roomSlice';
 import axios from 'axios';
+
+// Import action từ Redux và Component thẻ phòng
+import { fetchRooms } from '../redux/roomSlice';
+import RoomCard from '../components/RoomCard'; 
 
 const DashboardScreen = () => {
     const dispatch = useDispatch();
     const rooms = useSelector((state) => state.rooms.data);
-    
-    // State để quản lý Modal thêm phòng
-    const [modalVisible, setModalVisible] = useState(false);
-    const [newRoom, setNewRoom] = useState({ room_name: '', type: 'STANDARD', status: 'Trống' });
+    const status = useSelector((state) => state.rooms.status);
 
+    // IP của máy Backend (Máy Nhi)
     const BASE_URL = 'http://10.106.45.127:3000/api/rooms';
 
-    // Hàm xử lý Thêm phòng
-    const handleAddRoom = async () => {
-        if (!newRoom.room_name) return Alert.alert("Lỗi", "Vui lòng nhập tên phòng");
+    // State quản lý Cửa sổ (Modal)
+    const [modalVisible, setModalVisible] = useState(false);
+    const [isEditing, setIsEditing] = useState(false); // Biến để biết đang Thêm hay Sửa
+    const [formData, setFormData] = useState({ id: null, room_name: '', room_type: 'standard', price: '', status: 'available' });
+
+    useEffect(() => {
+        dispatch(fetchRooms());
+    }, [dispatch]);
+
+    // Bật form Thêm
+    const openAddModal = () => {
+        setIsEditing(false);
+        setFormData({ id: null, room_name: '', room_type: 'standard', price: '', status: 'available' });
+        setModalVisible(true);
+    };
+
+    // Bật form Sửa (Đổ dữ liệu cũ vào form)
+    const openEditModal = (room) => {
+        setIsEditing(true);
+        setFormData(room);
+        setModalVisible(true);
+    };
+
+    // Hàm Xử lý Gửi dữ liệu (Thêm hoặc Sửa)
+    const handleSubmit = async () => {
+        if (!formData.room_name || !formData.price) {
+            return Alert.alert("Lỗi", "Vui lòng nhập đủ tên phòng và giá!");
+        }
+
         try {
-            await axios.post(BASE_URL, newRoom);
+            if (isEditing) {
+                // Gọi API Sửa
+                await axios.put(`${BASE_URL}/${formData.id}`, formData);
+                Alert.alert("Thành công", "Đã cập nhật phòng!");
+            } else {
+                // Gọi API Thêm
+                await axios.post(BASE_URL, formData);
+                Alert.alert("Thành công", "Đã tạo phòng mới!");
+            }
             setModalVisible(false);
-            setNewRoom({ room_name: '', type: 'STANDARD', status: 'Trống' });
-            dispatch(fetchRooms()); // Tải lại danh sách sau khi thêm
-            Alert.alert("Thành công", "Đã thêm phòng mới!");
+            dispatch(fetchRooms()); // Load lại danh sách lập tức
         } catch (error) {
-            Alert.alert("Lỗi", "Không thể thêm phòng");
+            Alert.alert("Lỗi", "Không thể lưu dữ liệu, vui lòng thử lại.");
         }
     };
 
-    // Hàm xử lý Xóa phòng
-    const handleDeleteRoom = (id) => {
+    // Hàm Xử lý Xóa
+    const handleDelete = (id) => {
         Alert.alert("Xác nhận", "Bạn có chắc muốn xóa phòng này?", [
-            { text: "Hủy" },
+            { text: "Hủy", style: "cancel" },
             { 
                 text: "Xóa", 
                 style: "destructive",
                 onPress: async () => {
                     try {
                         await axios.delete(`${BASE_URL}/${id}`);
-                        dispatch(fetchRooms()); // Tải lại danh sách sau khi xóa
+                        dispatch(fetchRooms());
+                        Alert.alert("Đã xóa", "Xóa phòng thành công!");
                     } catch (error) {
-                        Alert.alert("Lỗi", "Phòng này đang có lịch đặt, không thể xóa!");
+                        Alert.alert("Lỗi hệ thống", "Phòng này đang có người đặt, không thể xóa!");
                     }
                 } 
             }
@@ -51,47 +84,71 @@ const DashboardScreen = () => {
 
     return (
         <View style={styles.container}>
+            {/* Header có nút Thêm */}
             <View style={styles.header}>
-                <Text style={styles.title}>Dashboard - Quản Lý</Text>
-                <TouchableOpacity onPress={() => setModalVisible(true)}>
-                    <Ionicons name="add-circle" size={35} color="#2ecc71" />
+                <Text style={styles.title}>Quản Lý Phòng</Text>
+                <TouchableOpacity onPress={openAddModal} style={styles.addButton}>
+                    <Ionicons name="add-circle" size={40} color="#27ae60" />
                 </TouchableOpacity>
             </View>
 
-            <FlatList
-                data={rooms}
-                keyExtractor={(item) => item.id.toString()}
-                renderItem={({ item }) => (
-                    <View style={styles.cardContainer}>
-                        <RoomCard item={item} />
-                        <TouchableOpacity 
-                            style={styles.deleteBtn} 
-                            onPress={() => handleDeleteRoom(item.id)}
-                        >
-                            <Ionicons name="trash" size={20} color="white" />
-                        </TouchableOpacity>
-                    </View>
-                )}
-            />
+            {status === 'loading' && rooms.length === 0 ? (
+                <ActivityIndicator size="large" color="#3498db" />
+            ) : (
+                <FlatList
+                    data={rooms}
+                    keyExtractor={(item) => item.id.toString()}
+                    showsVerticalScrollIndicator={false}
+                    refreshing={status === 'loading'}
+                    onRefresh={() => dispatch(fetchRooms())}
+                    renderItem={({ item }) => (
+                        <View style={styles.itemWrapper}>
+                            {/* Thẻ phòng của bạn */}
+                            <RoomCard item={item} />
+                            
+                            {/* Thanh công cụ Sửa / Xóa nằm góc trên bên phải thẻ phòng */}
+                            <View style={styles.actionRow}>
+                                <TouchableOpacity onPress={() => openEditModal(item)} style={styles.actionBtn}>
+                                    <Ionicons name="pencil" size={22} color="#f39c12" />
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => handleDelete(item.id)} style={[styles.actionBtn, { marginLeft: 10 }]}>
+                                    <Ionicons name="trash" size={22} color="#e74c3c" />
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    )}
+                />
+            )}
 
-            {/* Modal thêm phòng mới */}
-            <Modal visible={modalVisible} animationType="slide" transparent={true}>
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Thêm Phòng Mới</Text>
-                        <TextInput 
-                            style={styles.input} 
-                            placeholder="Tên phòng (vd: P.404)" 
-                            onChangeText={(txt) => setNewRoom({...newRoom, room_name: txt})}
-                        />
-                        <TextInput 
-                            style={styles.input} 
-                            placeholder="Loại phòng (STANDARD/DELUXE)" 
-                            onChangeText={(txt) => setNewRoom({...newRoom, type: txt})}
-                        />
-                        <View style={styles.modalButtons}>
-                            <Button title="Hủy" color="red" onPress={() => setModalVisible(false)} />
-                            <Button title="Lưu" onPress={handleAddRoom} />
+            {/* Modal Nhập Liệu */}
+            <Modal visible={modalVisible} transparent={true} animationType="fade">
+                <View style={styles.modalBg}>
+                    <View style={styles.modalBox}>
+                        <Text style={styles.modalTitle}>{isEditing ? 'Sửa Phòng' : 'Thêm Phòng Mới'}</Text>
+                        
+                        <TextInput style={styles.input} placeholder="Tên phòng (vd: P.505)"
+                            value={formData.room_name}
+                            onChangeText={(txt) => setFormData({...formData, room_name: txt})} />
+                        
+                        <TextInput style={styles.input} placeholder="Loại (standard/deluxe/suite)"
+                            value={formData.room_type}
+                            onChangeText={(txt) => setFormData({...formData, room_type: txt})} />
+                        
+                        <TextInput style={styles.input} placeholder="Giá (VND)" keyboardType="numeric"
+                            value={formData.price.toString()}
+                            onChangeText={(txt) => setFormData({...formData, price: txt})} />
+                        
+                        <TextInput style={styles.input} placeholder="Trạng thái (available/occupied)"
+                            value={formData.status}
+                            onChangeText={(txt) => setFormData({...formData, status: txt})} />
+
+                        <View style={styles.btnRow}>
+                            <TouchableOpacity onPress={() => setModalVisible(false)} style={[styles.submitBtn, {backgroundColor: '#95a5a6'}]}>
+                                <Text style={styles.btnText}>Hủy</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={handleSubmit} style={styles.submitBtn}>
+                                <Text style={styles.btnText}>Lưu</Text>
+                            </TouchableOpacity>
                         </View>
                     </View>
                 </View>
@@ -101,16 +158,20 @@ const DashboardScreen = () => {
 };
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#f4f6f8', padding: 16 },
-    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 40 },
-    title: { fontSize: 22, fontWeight: 'bold' },
-    cardContainer: { position: 'relative' },
-    deleteBtn: { position: 'absolute', right: 10, top: 10, backgroundColor: '#e74c3c', padding: 8, borderRadius: 20 },
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-    modalContent: { backgroundColor: 'white', padding: 20, borderRadius: 15, width: '80%' },
-    modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
-    input: { borderWidth: 1, borderColor: '#ddd', padding: 10, borderRadius: 8, marginBottom: 10 },
-    modalButtons: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 10 }
+    container: { flex: 1, backgroundColor: '#f4f6f8', paddingHorizontal: 16 },
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 50, marginBottom: 15 },
+    title: { fontSize: 26, fontWeight: 'bold', color: '#2c3e50' },
+    addButton: { shadowColor: '#27ae60', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 3 },
+    itemWrapper: { position: 'relative', marginBottom: 15 },
+    actionRow: { position: 'absolute', top: 10, right: 10, flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 10, padding: 5 },
+    actionBtn: { padding: 5 },
+    modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
+    modalBox: { backgroundColor: 'white', width: '85%', padding: 20, borderRadius: 15, elevation: 5 },
+    modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 15, textAlign: 'center', color: '#2c3e50' },
+    input: { borderWidth: 1, borderColor: '#bdc3c7', padding: 12, borderRadius: 8, marginBottom: 10, fontSize: 16 },
+    btnRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
+    submitBtn: { flex: 0.48, backgroundColor: '#3498db', padding: 12, borderRadius: 8, alignItems: 'center' },
+    btnText: { color: 'white', fontWeight: 'bold', fontSize: 16 }
 });
 
 export default DashboardScreen;
